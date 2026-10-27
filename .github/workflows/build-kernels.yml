@@ -61,7 +61,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SCRIPTS_DIR: ./.github/workflows/scripts
     outputs:
@@ -84,7 +84,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -216,7 +216,7 @@ jobs:
   release:
     needs: [prepare, build]
     if: ${{ github.event.inputs.make_release == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
