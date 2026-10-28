@@ -260,42 +260,38 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._patch_sukisu_fallthrough()
 
     def _patch_sukisu_fallthrough(self):
-        allowlist = self.work_dir / "common/drivers/kernelsu/policy/allowlist.c"
-        if not allowlist.exists():
+        ksu_dir = self.work_dir / "common/drivers/kernelsu"
+        if not ksu_dir.exists():
+            logger.warning(f"KernelSU dir not found at {ksu_dir}, skip fallthrough patch")
             return
-        try:
-            content = allowlist.read_text()
-        except Exception as e:
-            logger.warning(f"skip fallthrough patch, read failed: {e}")
-            return
-        lines = content.split('\n')
-        exit_kw = ('break', 'return', 'goto', 'continue', 'fallthrough', '__attribute__')
-        out = []
-        changed = 0
-        for line in lines:
-            stripped = line.strip()
-            is_case = (re.match(r'^case\s+.+:', stripped) is not None) or stripped == 'default:'
-            if is_case and out:
-                j = len(out) - 1
-                while j >= 0 and (not out[j].strip() or out[j].lstrip().startswith('//')):
-                    j -= 1
-                if j >= 0:
-                    prev = out[j].strip()
-                    is_block_boundary = prev.endswith('{') or prev.endswith('}')
-                    is_case_above = (re.match(r'^case\s+.+:', prev) is not None) or prev == 'default:'
-                    starts_with_exit = any(prev.startswith(kw) for kw in exit_kw)
-                    looks_statement = prev.endswith(';')
-                    if looks_statement and not is_block_boundary and not is_case_above and not starts_with_exit:
-                        indent = len(line) - len(line.lstrip())
-                        out.append(' ' * indent + '__attribute__((fallthrough));')
-                        changed += 1
-            out.append(line)
-        if changed:
+        patterns = [
+            re.compile(r'/\*\s*fall\s*[-_ ]?\s*through\s*\*/', re.IGNORECASE),
+            re.compile(r'/\*\s*FALL\s*THRU\s*\*/', re.IGNORECASE),
+            re.compile(r'//\s*fall\s*[-_ ]?\s*through\s*$', re.IGNORECASE | re.MULTILINE),
+        ]
+        total_files = 0
+        total_subs = 0
+        for src in ksu_dir.rglob("*.c"):
             try:
-                allowlist.write_text('\n'.join(out))
-                logger.info(f"patched allowlist.c implicit-fallthrough ({changed} site(s))")
-            except Exception as e:
-                logger.warning(f"skip fallthrough patch, write failed: {e}")
+                orig = src.read_text()
+            except Exception:
+                continue
+            new = orig
+            subs = 0
+            for p in patterns:
+                new, n = p.subn('fallthrough;', new)
+                subs += n
+            if subs > 0:
+                try:
+                    src.write_text(new)
+                    total_files += 1
+                    total_subs += subs
+                except Exception as e:
+                    logger.warning(f"write failed for {src.name}: {e}")
+        if total_subs:
+            logger.info(f"replaced {total_subs} fall-through comment(s) with keyword across {total_files} KernelSU file(s)")
+        else:
+            logger.info("no fall-through comments found in KernelSU, nothing to patch")
 
     def add_bbg(self):
         if not self.config.use_bbg:
